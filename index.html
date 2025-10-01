@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Simple Weather App</title>
+  <style>
+    :root{ --bg:#0f172a; --card:#0b1220; --accent:#38bdf8; --muted:#94a3b8; --glass: rgba(255,255,255,0.04) }
+    *{box-sizing:border-box}
+    body{margin:0; font-family:Inter,ui-sans-serif,system-ui,Arial; background:linear-gradient(180deg,#071029 0%, #0b1830 100%); color:#e6eef8; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px}
+    .wrap{max-width:720px; width:100%}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:14px; padding:20px; box-shadow:0 8px 30px rgba(2,6,23,0.7); border:1px solid rgba(255,255,255,0.03)}
+    header{display:flex; align-items:center; justify-content:space-between; gap:12px}
+    h1{font-size:20px; margin:0}
+    p.lead{margin:0; color:var(--muted); font-size:13px}
+
+    form{display:flex; gap:8px; margin-top:16px}
+    input[type="text"]{flex:1; padding:12px 14px; border-radius:10px; border:1px solid rgba(255,255,255,0.06); background:var(--glass); outline:none; color:inherit}
+    button{padding:12px 16px; border-radius:10px; border:none; background:linear-gradient(90deg,var(--accent),#60a5fa); color:#04293a; font-weight:600; cursor:pointer}
+    .small{font-size:12px; color:var(--muted)}
+
+    .result{display:grid; grid-template-columns:120px 1fr; gap:16px; align-items:center; margin-top:20px}
+    .icon{width:120px; height:120px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.02); border-radius:12px}
+    .icon img{width:96px; height:96px}
+    .meta{display:flex; flex-direction:column; gap:6px}
+    .temp{font-size:42px; font-weight:700}
+    .desc{font-size:15px; color:var(--muted)}
+    .grid-stats{display:flex; gap:12px; margin-top:8px; flex-wrap:wrap}
+    .stat{background:rgba(255,255,255,0.02); padding:8px 10px; border-radius:8px; font-size:13px}
+
+    .foot{margin-top:18px; display:flex; justify-content:space-between; align-items:center}
+    .hint{font-size:12px; color:var(--muted)}
+
+    /* responsive */
+    @media (max-width:520px){
+      .result{grid-template-columns:100px 1fr}
+      .temp{font-size:34px}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <header>
+        <div>
+          <h1>Weather App</h1>
+          <p class="lead">Type a city name (e.g. Dhaka, London) and press Search or Enter.</p>
+        </div>
+        <div class="small">Powered by OpenWeatherMap</div>
+      </header>
+
+      <form id="searchForm" onsubmit="return false;">
+        <input id="query" type="text" placeholder="Enter city name (e.g. Dhaka)" autocomplete="off" />
+        <button id="searchBtn">Search</button>
+      </form>
+
+      <div id="message" class="small" style="margin-top:12px"></div>
+
+      <div id="resultArea" style="display:none">
+        <div class="result">
+          <div class="icon"><img id="wicon" src="" alt="icon"/></div>
+          <div class="meta">
+            <div style="display:flex; align-items:baseline; gap:10px">
+              <div class="temp" id="temperature">--°C</div>
+              <div style="font-size:14px; color:var(--muted)" id="cityName">--</div>
+            </div>
+            <div class="desc" id="description">--</div>
+
+            <div class="grid-stats">
+              <div class="stat">Humidity: <span id="humidity">--</span>%</div>
+              <div class="stat">Wind: <span id="wind">--</span> m/s</div>
+              <div class="stat">Pressure: <span id="pressure">--</span> hPa</div>
+              <div class="stat">Feels like: <span id="feels">--</span>°C</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="foot">
+          <div class="hint">Tip: You can also try country name or "city,country" (e.g. "Paris,FR").</div>
+          <div class="small">Units: Celsius (metric)</div>
+        </div>
+      </div>
+
+    </div>
+
+    <p style="color:var(--muted); font-size:13px; margin-top:10px">Note: This demo embeds your API key in client-side code. For production hide it in a backend proxy to avoid public exposure.</p>
+  </div>
+
+  <script>
+    // === CONFIG: replace with the API key you shared ===
+    const API_KEY = 'b3e1fb276e641a42418414779b336744';
+    // We will use metric units (Celsius). Change to 'imperial' for °F.
+    const UNITS = 'metric';
+
+    const $q = document.getElementById('query');
+    const $msg = document.getElementById('message');
+    const $result = document.getElementById('resultArea');
+    const $temp = document.getElementById('temperature');
+    const $city = document.getElementById('cityName');
+    const $desc = document.getElementById('description');
+    const $hum = document.getElementById('humidity');
+    const $wind = document.getElementById('wind');
+    const $pres = document.getElementById('pressure');
+    const $feels = document.getElementById('feels');
+    const $wicon = document.getElementById('wicon');
+
+    document.getElementById('searchBtn').addEventListener('click', doSearch);
+    $q.addEventListener('keydown', (e)=>{ if(e.key === 'Enter'){ doSearch(); } });
+
+    function showMessage(text, isError=false){ $msg.textContent = text; $msg.style.color = isError ? '#ff8b8b' : 'var(--muted)'; }
+
+    async function doSearch(){
+      const query = $q.value.trim();
+      if(!query){ showMessage('Please enter a city name.', true); $result.style.display='none'; return; }
+      showMessage('Fetching weather…');
+
+      try{
+        // Use q parameter (city name). OpenWeatherMap accepts 'city' or 'city,countrycode'.
+        const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(query)}&appid=${API_KEY}&units=${UNITS}`;
+        const resp = await fetch(url);
+        if(!resp.ok){
+          if(resp.status === 404){ showMessage('City not found. Try different spelling or include country code (e.g. "Lagos,NG").', true); }
+          else{ showMessage('Error fetching data: ' + resp.status + ' ' + resp.statusText, true); }
+          $result.style.display='none';
+          return;
+        }
+        const data = await resp.json();
+        // populate UI
+        const t = Math.round(data.main.temp);
+        $temp.textContent = t + '°C';
+        $city.textContent = `${data.name}${data.sys && data.sys.country ? ', ' + data.sys.country : ''}`;
+        const description = data.weather && data.weather[0] ? capitalize(data.weather[0].description) : '—';
+        $desc.textContent = description;
+        $hum.textContent = data.main.humidity;
+        $wind.textContent = data.wind && data.wind.speed != null ? data.wind.speed : '--';
+        $pres.textContent = data.main.pressure;
+        $feels.textContent = Math.round(data.main.feels_like);
+
+        // icon
+        if(data.weather && data.weather[0] && data.weather[0].icon){
+          $wicon.src = `https://openweathermap.org/img/wn/${data.weather[0].icon}@2x.png`;
+          $wicon.alt = data.weather[0].description || 'weather icon';
+        } else { $wicon.src=''; $wicon.alt=''; }
+
+        $result.style.display = 'block';
+        showMessage('Last update: ' + new Date().toLocaleString());
+      }catch(err){
+        console.error(err);
+        showMessage('Network or unexpected error. Check console for details.', true);
+        $result.style.display='none';
+      }
+    }
+
+    function capitalize(s){ return s.replace(/(^|\s)\S/g, t => t.toUpperCase()); }
+
+    // Optional: try a quick demo city on load
+    $q.value = 'Narayanganj'; doSearch();
+
+  </script>
+</body>
+</html>
